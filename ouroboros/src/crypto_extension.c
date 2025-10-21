@@ -2,11 +2,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <stdint.h>
+#include <time.h>
 #include <openssl/aes.h>
 #include <openssl/rand.h>
-#include <sys/mman.h>
-#include <time.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/mman.h>
+    #include <sys/ptrace.h>
+    #include <unistd.h>
+#endif
 
 #define KEY_FRAGMENTS 10
 #define FRAGMENT_SIZE 16
@@ -17,10 +25,22 @@ int fragments_initialized = 0;
 
 // Advanced anti-debugging
 void advanced_anti_debug() {
-    // Ptrace check
+    // Allow bypass for demo/testing with OUROBOROS_DEMO environment variable
+    if (getenv("OUROBOROS_DEMO") != NULL) {
+        return;
+    }
+    
+#ifndef _WIN32
+    // Ptrace check (Linux only)
     if (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1) {
         exit(1);
     }
+#else
+    // Windows: Check for debugger
+    if (IsDebuggerPresent()) {
+        exit(1);
+    }
+#endif
     
     // Timing attack
     clock_t start = clock();
@@ -147,10 +167,21 @@ void generate_complex_fragments() {
 
 // Self-modifying code with multiple layers
 void self_modify_complex() {
-    // Make code writable
+    // Skip self-modification in demo mode to prevent crashes
+    if (getenv("OUROBOROS_DEMO") != NULL) {
+        return;
+    }
+    
+#ifndef _WIN32
+    // Linux: Make code writable
     size_t page_size = sysconf(_SC_PAGESIZE);
     uintptr_t start = (uintptr_t)self_modify_complex & ~(page_size - 1);
     mprotect((void*)start, page_size * 2, PROT_READ | PROT_WRITE | PROT_EXEC);
+#else
+    // Windows: Change memory protection
+    DWORD oldProtect;
+    VirtualProtect((void*)self_modify_complex, 4096, PAGE_EXECUTE_READWRITE, &oldProtect);
+#endif
     
     // Modify multiple locations with different patterns
     unsigned char *code_ptr = (unsigned char*)self_modify_complex;

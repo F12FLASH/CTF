@@ -1,9 +1,14 @@
 #include <Python.h>
-#include <sys/ptrace.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/ptrace.h>
+    #include <sys/time.h>
+    #include <unistd.h>
+#endif
 
 static int integrity_checksum = 0;
 
@@ -15,7 +20,8 @@ void calculate_checksum() {
 }
 
 PyObject* anti_analysis_check(PyObject* self, PyObject* args) {
-    // Ptrace anti-debug
+#ifndef _WIN32
+    // Ptrace anti-debug (Linux only)
     if (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1) {
         return Py_BuildValue("i", 0);
     }
@@ -36,6 +42,12 @@ PyObject* anti_analysis_check(PyObject* self, PyObject* args) {
     if (elapsed > 0.01) {
         return Py_BuildValue("i", 0);
     }
+#else
+    // Windows: Check for debugger
+    if (IsDebuggerPresent()) {
+        return Py_BuildValue("i", 0);
+    }
+#endif
     
     // Environment check
     if (getenv("DEBUG") != NULL || getenv("GDB") != NULL) {

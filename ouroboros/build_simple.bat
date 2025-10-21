@@ -1,20 +1,18 @@
 @echo off
 echo ========================================
-echo   Building Ouroboros Challenge
+echo   Building Ouroboros C Extensions
 echo ========================================
 echo.
 
-REM Check Python installation
+REM Check if Python is installed
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python not found! Please install Python 3.8 or later.
-    echo Download from: https://www.python.org/downloads/
+    echo ERROR: Python is not installed or not in PATH
     pause
     exit /b 1
 )
 
 echo Installing Python dependencies...
-python -m pip install --upgrade pip
 python -m pip install pycryptodome
 
 echo.
@@ -25,20 +23,16 @@ if errorlevel 1 (
     echo.
     echo ERROR: Build failed!
     echo.
-    echo Please install Microsoft Visual C++ Build Tools from:
-    echo https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo Make sure you have Microsoft Visual C++ Build Tools installed.
+    echo Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
     echo.
     echo Required components:
-    echo   - MSVC v143 (or later)
+    echo   - MSVC v143 or later
     echo   - Windows SDK
+    echo   - C++ CMake tools
     echo.
     pause
     exit /b 1
-)
-
-REM Copy main.py to root for easier access
-if not exist main.py (
-    copy src\main.py main.py >nul
 )
 
 echo.
@@ -46,14 +40,11 @@ echo ========================================
 echo   Build completed successfully!
 echo ========================================
 echo.
-echo To run challenge:
+echo To run the challenge:
 echo   python src\main.py
 echo.
-echo Or with demo mode (no anti-debug):
+echo Or with demo mode (no anti-debugging):
 echo   set OUROBOROS_DEMO=1
 echo   python src\main.py
-echo.
-echo To solve (extremely difficult):
-echo   python solve.py
 echo.
 pause
