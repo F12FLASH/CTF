@@ -1,0 +1,16 @@
+*.o
+*.so
+*.a
+ouroboros
+core
+*.log
+__pycache__/
+*.pyc
+.pythonlibs/
+*.dmp
+*.raw
+memory_dump.bin
+solution/extracted_*
+solution/decrypted_*
+.venv/
+venv/
