@@ -268,6 +268,24 @@ export default function ChallengePage() {
                   <div className="bg-muted/30 border border-border rounded-md p-4 font-jetbrains">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                       <div>
+                        <p className="font-semibold text-foreground mb-1">stackless_stack</p>
+                        <p className="text-sm text-muted-foreground">File biên dịch Binary</p>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="font-jetbrains"
+                        onClick={() => handleDownload('stackless_stack')}
+                        data-testid="button-download-source"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        TẢI XUỐNG
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="bg-muted/30 border border-border rounded-md p-4 font-jetbrains">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div>
                         <p className="font-semibold text-foreground mb-1">README.txt</p>
                         <p className="text-sm text-muted-foreground">Hướng dẫn thử thách</p>
                       </div>

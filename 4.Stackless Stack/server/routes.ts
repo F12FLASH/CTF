@@ -253,7 +253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/download/:filename", rateLimit(20, 60000), async (req: Request, res: Response) => {
     try {
       const filename = req.params.filename;
-      const allowedFiles = ['stackless_stack.c', 'README.txt'];
+      const allowedFiles = ['stackless_stack', 'stackless_stack.c', 'README.txt'];
       
       const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '');
       

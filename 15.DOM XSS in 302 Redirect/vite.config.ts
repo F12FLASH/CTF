@@ -5,7 +5,6 @@ import path from "path";
 export default defineConfig({
   plugins: [
     react(),
-    // Đã loại bỏ errorOverlay do lỗi import
   ],
   resolve: {
     alias: {
@@ -20,12 +19,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    host: "0.0.0.0",
-    port: 5000,
-    strictPort: true,
-    hmr: {
-      clientPort: 5000,
-    },
     fs: {
       strict: true,
       deny: ["**/.*"],

